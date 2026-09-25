@@ -1,4 +1,6 @@
 web/node_modules/
 build/
+server/frontend/dist/
+*.db
 *.log
 .DS_Store
