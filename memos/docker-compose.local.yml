@@ -1,0 +1,31 @@
+version: "3.8"
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: memos
+      POSTGRES_USER: memos
+      POSTGRES_PASSWORD: localtestpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memos -d memos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  memos:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MEMOS_DRIVER: postgres
+      MEMOS_DSN: postgresql://memos:localtestpassword@postgres:5432/memos?sslmode=disable
+    ports:
+      - "5230:5230"
+
+volumes:
+  pgdata:
