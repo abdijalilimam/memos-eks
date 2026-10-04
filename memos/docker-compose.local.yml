@@ -1,4 +1,3 @@
-version: "3.8"
 services:
   postgres:
     image: postgres:16
@@ -21,11 +20,13 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    environment:
-      MEMOS_DRIVER: postgres
-      MEMOS_DSN: postgresql://memos:localtestpassword@postgres:5432/memos?sslmode=disable
+    command:
+      - "--driver"
+      - "postgres"
+      - "--dsn"
+      - "postgresql://memos:localtestpassword@postgres:5432/memos?sslmode=disable"
     ports:
-      - "5230:5230"
+      - "8081:8081"
 
 volumes:
   pgdata:

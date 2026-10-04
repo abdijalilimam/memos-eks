@@ -12,8 +12,9 @@
 ## Step 3 - Postgres with Docker Compose
 - Wrote docker-compose.local.yml to run memos and Postgres together on my laptop. It is for local testing only and is not used in project.
 - Added a healthcheck so memos waits until Postgres is actually ready, not just started.
-- Compose failed on the memos part with "Dockerfile cannot be empty" because I hadn't written the Dockerfile yet. The Postgres part pulled fine.
-
+- Fixed the compose file: removed the obsolete version line, changed the port to 8081, and passed --driver and --dsn through command: (both flags confirmed in --help).
+- memos and Postgres run together. The 13 tables in Postgres show memos is using it, not its own SQLite file.
+- A note survived docker compose down and up. Only down -v would delete it.
 ## Step 4 - Dockerfile
 - Moved the code up one folder (memos/web instead of memos/src/web) to keep the paths simple.
 - A Docker build starts empty and only has the files I COPY in. My first attempt failed at pnpm install. One cause: package.json points to a patch file in web/patches, and pnpm-workspace.yaml configures it. I hadn't copied either. I added them, but the build still failed and I never saw the real error message. The same install worked on my laptop. Status: unresolved. I added libc6-compat as a precaution (a common fix on Alpine), but I haven't confirmed it is the cause.
