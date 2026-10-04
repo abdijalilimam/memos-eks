@@ -1,9 +1,23 @@
 ## Step 1 - Repo setup
-- created repo, folder structure (terraform/, argocd/, k8s/, docs/, .github/workflows/)
-- forgot to actually commit after creating folders - git status showed "no commits yet" even though structure was there. 
-- confirmed abdijalil.dev Route 53 hosted zone already works (proven indirectly - old ECS project's it-tools.abdijalil.dev subdomain still resolves, so nameserver delegation is already correct, no need to re-check with dig)
-- decided: reuse abdijalil.dev hosted zone, add new eks.abdijalil.dev subdomain rather than creating a new hosted zone
+- Created the GitHub repo and the folders: terraform/, argocd/, k8s/, docs/, .github/workflows/
+- Checked the domain's DNS, is already set up correctly from previous project.
+- Decision: reuse the same domain and add a new subdomain, eks.abdijalil.dev, instead of creating a new domain.
+
 ## Step 2 - memos local build
-- hit "no embeddable frontend found" - had to build frontend (pnpm release) BEFORE go build, since Go embeds dist/ at compile time, not runtime
-- memos CLI flags differ from older docs - no --mode flag, actual flags are --driver, --dsn, --port, --instance-url (confirmed via --help)
-- had to fix .gitignore - dist/, node_modules, build/, *.db were getting tracked/untracked incorrectly at first
+- Built memos on my laptop first, to make sure the app works before putting it in Docker.
+- Error "No embeddable frontend found": the website part (frontend) must be built first, then the Go program. The Go build copies the frontend files inside the finished program, so the wrong order leaves them out.
+- memos' older docs are out of date. The default port is 8081.
+- Fixed .gitignore so build output (dist/, node_modules/, build/) and local database files (*.db) don't get committed.
+
+## Step 3 - Postgres with Docker Compose
+- Wrote docker-compose.local.yml to run memos and Postgres together on my laptop. It is for local testing only and is not used in project.
+- Added a healthcheck so memos waits until Postgres is actually ready, not just started.
+- Compose failed on the memos part with "Dockerfile cannot be empty" because I hadn't written the Dockerfile yet. The Postgres part pulled fine.
+
+## Step 4 - Dockerfile
+- Moved the code up one folder (memos/web instead of memos/src/web) to keep the paths simple.
+- A Docker build starts empty and only has the files I COPY in. My first attempt failed at pnpm install. One cause: package.json points to a patch file in web/patches, and pnpm-workspace.yaml configures it. I hadn't copied either. I added them, but the build still failed and I never saw the real error message. The same install worked on my laptop. Status: unresolved. I added libc6-compat as a precaution (a common fix on Alpine), but I haven't confirmed it is the cause.
+- The frontend build writes its output to ../server/frontend/dist, so web/ and server/ have to sit side by side inside the container.
+- Simplified the Dockerfile to three stages: build the frontend (Node), build the backend (Go), run the app (Alpine).
+- Chose Alpine over scratch for the final image (see decisions.md).
+- Next: add a .dockerignore, run docker build, then docker run on port 8081.
