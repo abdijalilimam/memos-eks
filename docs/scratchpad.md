@@ -22,3 +22,8 @@
 - Simplified the Dockerfile to three stages: build the frontend (Node), build the backend (Go), run the app (Alpine).
 - Chose Alpine over scratch for the final image (see decisions.md).
 - Next: add a .dockerignore, run docker build, then docker run on port 8081.
+## Step 5 - Push image to ECR
+- Built with --platform linux/amd64 because my Mac is arm64 and the EKS nodes will be Intel. The Go build takes about 4 minutes under emulation.
+- ECR repo: memos, us-east-2, immutable tags, scan on push.
+- Pushed tag: cf084ac (the git commit hash)
+- This tag goes into k8s/memos/deployment.yaml later.
