@@ -14,6 +14,10 @@ Chose Traefik over NGINX Ingress Controller, and decided to use Traefik's built-
 
 The pipeline's last step updates the image tag inside `k8s/memos/deployment.yaml` and commits that change to Git, rather than running `kubectl apply` or `helm upgrade` directly. ArgoCD detects the change and performs the actual deploy. This keeps the pipeline responsible for triggering a deployment while ArgoCD/Git remains the sole mechanism that actually touches the cluster.
 
+## Terraform state: S3 bucket with built-in S3 locking, created outside Terraform
+
+State is stored in a versioned, encrypted S3 bucket with all public access blocked. Locking uses Terraform's native S3 lock file (use_lockfile) and not a DynamoDB table, because HashiCorp has deprecated DynamoDB locking and it's one less resource to run and secure. This needs Terraform 1.10 or newer. I created the bucket by hand since the state backend has to exist before Terraform can use it, and it is kept out of the project's teardown so destroying the project doesn't delete the state it depends on.
+
 ## VPC: explicit private/public subnet split
 
 Worker nodes run in private subnets; the Traefik load balancer lands in public subnets. A deliberate two-tier split with a NAT Gateway so private subnets retain outbound internet access.

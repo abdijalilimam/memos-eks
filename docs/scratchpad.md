@@ -27,3 +27,7 @@
 - ECR repo: memos, us-east-2, immutable tags, scan on push.
 - Pushed tag: cf084ac (the git commit hash)
 - This tag goes into k8s/memos/deployment.yaml later.
+## Step 7 - Remote state
+- Created the S3 bucket memos-eks-tfstate-<account id> by hand (versioning on, encrypted, public access blocked).
+- Locking will use Terraform's built-in S3 locking (use_lockfile) instead of a DynamoDB table. I created a DynamoDB table first, then deleted it before using it.
+- Made by hand because Terraform needs a place to store its state before it can create anything. I must not destroy the bucket when I tear down the project.
