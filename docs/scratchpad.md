@@ -31,3 +31,5 @@
 - Created the S3 bucket memos-eks-tfstate-<account id> by hand (versioning on, encrypted, public access blocked).
 - Locking will use Terraform's built-in S3 locking (use_lockfile) instead of a DynamoDB table. I created a DynamoDB table first, then deleted it before using it.
 - Made by hand because Terraform needs a place to store its state before it can create anything. I must not destroy the bucket when I tear down the project.
+## Step 7 - Terraform: VPC, IAM, EKS
+- Terraform on my laptop: v1.16.4. The GitHub Actions workflow must pin the same version.
