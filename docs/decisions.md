@@ -28,7 +28,7 @@ State is stored in a versioned, encrypted S3 bucket with all public access block
 
 ## VPC: explicit private/public subnet split
 
-Worker nodes run in private subnets; the Traefik load balancer lands in public subnets. A deliberate two-tier split with a NAT Gateway so private subnets retain outbound internet access.
+Worker nodes run in private subnets; the Traefik load balancer lands in public subnets. A deliberate two-tier split with a NAT Gateway so private subnets retain outbound internet access.The NAT gateway is a single regional NAT gateway and not a zonal one, so one gateway covers all three availability zones and losing one zone doesn't cut outbound internet for the private subnets.
 
 ## Security groups scoped to minimum required access
 
