@@ -45,7 +45,8 @@ resource "aws_internet_gateway" "main" {
 #reginal nat gateway
 resource "aws_nat_gateway" "main" {
   vpc_id            = aws_vpc.main.id
-  availability_mode = "regional"
+  availability_mode = var.availability_mode
+  connectivity_type = var.connectivity_type
 
   tags = {
     Name = "${var.name}-nat"

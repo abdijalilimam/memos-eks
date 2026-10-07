@@ -9,6 +9,16 @@ variable "vpc_cidr" {
   default     = "10.0.0.0/16"
 }
 
+variable "availability_mode" {
+  description = "NAT gateway availability mode"
+  type        = string
+}
+
+variable "connectivity_type" {
+  description = "NAT gateway connectivity type"
+  type        = string
+}
+
 variable "az1" {
   description = "First availability zone"
   type        = string
