@@ -12,7 +12,7 @@ Running one environment (prod) rather than dev/staging/prod in parallel. Multi-e
 
 ## Building a custom Docker image from source
 
-Chose to fork and clone memos' actual source code and write an original Dockerfile, rather than wrapping the pre-built upstream image. This gives the CI/CD pipeline a real build-and-scan step to perform against code that's actually mine, not someone else's pre-built artifact.
+Chose to clone memos' actual source code and write a Dockerfile, rather than wrapping the pre-built upstream image. This gives the CI/CD pipeline a real build-and-scan step to perform, instead of reusing someone else's pre-built image.
 
 ## Docker image: three stages, final image on Alpine (not scratch)
 
@@ -26,17 +26,38 @@ Images are tagged with the short git commit hash (for example cf084ac), never la
 
 State is stored in a versioned, encrypted S3 bucket with all public access blocked. Locking uses Terraform's native S3 lock file (use_lockfile) and not a DynamoDB table, because HashiCorp has deprecated DynamoDB locking and it's one less resource to run and secure. This needs Terraform 1.10 or newer. I created the bucket by hand since the state backend has to exist before Terraform can use it, and it is kept out of the project's teardown so destroying the project doesn't delete the state it depends on.
 
+## Terraform modules: custom modules instead of the community VPC module
+
+The infrastructure is split into separate modules: vpc, iam, sg and eks. For the VPC, the community terraform-aws-modules/vpc module was an option. I chose a custom module so every resource is visible in the repo, and I can explain and change each one.
+
+The VPC module takes the subnet values (CIDRs, zones, names) as variables. It groups them in a locals table and creates the subnets with for_each.
+
+## Shared tags: default_tags in the provider
+
+Common tags (Project, ManagedBy) are set once in provider.tf with default_tags. Each resource only sets its own Name tag, so there is no merge() in every resource.
+
+## Version pinning: Terraform 1.16.x and AWS provider ~> 6.24
+
+required_version is ~> 1.16.4, which matches my laptop, and the pipeline must use the same version. The AWS provider is ~> 6.24 because the regional NAT gateway needs provider 6.24.0 or newer. The provider lock file (.terraform.lock.hcl) is committed so my laptop and the pipeline install the same provider version.
+
 ## VPC: explicit private/public subnet split
 
-Worker nodes run in private subnets; the Traefik load balancer lands in public subnets. A deliberate two-tier split with a NAT Gateway so private subnets retain outbound internet access.The NAT gateway is a single regional NAT gateway and not a zonal one, so one gateway covers all three availability zones and losing one zone doesn't cut outbound internet for the private subnets.
+Worker nodes run in private subnets; the Traefik load balancer lands in public subnets. A deliberate two-tier split with a NAT Gateway so private subnets retain outbound internet access.
+
+The NAT gateway is a single regional NAT gateway, not a zonal one. One gateway covers all three availability zones, so losing one zone does not cut outbound internet for the private subnets.
 
 ## Security groups scoped to minimum required access
 
 Security group rules avoid `0.0.0.0/0` except where genuinely required for public load balancer traffic on ports 80/443. Node-to-node and control-plane-to-node rules are scoped narrowly.
 
-## IAM: least-privilege node role
+## IAM: separate roles for the control plane and the worker nodes
 
-Worker node IAM role attaches only the managed policies actually required (`AmazonEKSWorkerNodePolicy`, `AmazonEKS_CNI_Policy`, `AmazonEC2ContainerRegistryReadOnly`), rather than broader permissions.
+There are two roles.
+
+- Control plane role: trusts the EKS service and has one policy, AmazonEKSClusterPolicy.
+- Worker node role: trusts EC2 and has only the policies the nodes need (AmazonEKSWorkerNodePolicy, AmazonEKS_CNI_Policy, AmazonEC2ContainerRegistryReadOnly).
+
+There is no instance profile in the code. The managed node group creates one from the node role automatically.
 
 ## GitOps pattern: app-of-apps
 

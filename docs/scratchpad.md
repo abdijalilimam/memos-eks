@@ -10,11 +10,12 @@
 - Fixed .gitignore so build output (dist/, node_modules/, build/) and local database files (*.db) don't get committed.
 
 ## Step 3 - Postgres with Docker Compose
-- Wrote docker-compose.local.yml to run memos and Postgres together on my laptop. It is for local testing only and is not used in project.
+- Wrote docker-compose.local.yml to run memos and Postgres together on my laptop. It is for local testing only and is not used in the final project.
 - Added a healthcheck so memos waits until Postgres is actually ready, not just started.
 - Fixed the compose file: removed the obsolete version line, changed the port to 8081, and passed --driver and --dsn through command: (both flags confirmed in --help).
 - memos and Postgres run together. The 13 tables in Postgres show memos is using it, not its own SQLite file.
 - A note survived docker compose down and up. Only down -v would delete it.
+
 ## Step 4 - Dockerfile
 - Moved the code up one folder (memos/web instead of memos/src/web) to keep the paths simple.
 - A Docker build starts empty and only has the files I COPY in. My first attempt failed at pnpm install. One cause: package.json points to a patch file in web/patches, and pnpm-workspace.yaml configures it. I hadn't copied either. I added them, but the build still failed and I never saw the real error message. The same install worked on my laptop. Status: unresolved. I added libc6-compat as a precaution (a common fix on Alpine), but I haven't confirmed it is the cause.
@@ -22,14 +23,40 @@
 - Simplified the Dockerfile to three stages: build the frontend (Node), build the backend (Go), run the app (Alpine).
 - Chose Alpine over scratch for the final image (see decisions.md).
 - Next: add a .dockerignore, run docker build, then docker run on port 8081.
+
 ## Step 5 - Push image to ECR
 - Built with --platform linux/amd64 because my Mac is arm64 and the EKS nodes will be Intel. The Go build takes about 4 minutes under emulation.
 - ECR repo: memos, us-east-2, immutable tags, scan on push.
 - Pushed tag: cf084ac (the git commit hash)
 - This tag goes into k8s/memos/deployment.yaml later.
-## Step 7 - Remote state
+
+## Step 6 - Remote state
 - Created the S3 bucket memos-eks-tfstate-<account id> by hand (versioning on, encrypted, public access blocked).
 - Locking will use Terraform's built-in S3 locking (use_lockfile) instead of a DynamoDB table. I created a DynamoDB table first, then deleted it before using it.
 - Made by hand because Terraform needs a place to store its state before it can create anything. I must not destroy the bucket when I tear down the project.
-## Step 7 - Terraform: VPC, IAM, EKS
-- Terraform on my laptop: v1.16.4. The GitHub Actions workflow must pin the same version.
+
+## Step 7 - Terraform: VPC and IAM modules
+
+Setup
+- Terraform on my laptop is v1.16.4. The pipeline must use the same version.
+- AWS provider is pinned to ~> 6.24, because the regional NAT needs 6.24 or newer. It installed 6.67.0. The lock file in environments/prod is committed.
+- Common tags use default_tags in provider.tf, so each resource only needs a Name tag.
+- Renamed the module folders to eks and sg to keep the names short.
+- Skipped the manual ClickOps EKS walkthrough. Terraform builds the cluster.
+
+VPC module
+- Contains: 3 public subnets, 3 private subnets, an internet gateway, one regional NAT gateway, two route tables with their associations, and outputs.
+- Subnet values come in as variables, are grouped in a locals map, and are created with for_each.
+- Considered the community VPC module. Chose a custom module instead (see decisions.md).
+
+IAM module
+- Contains: a control plane role and a worker node role.
+- No instance profile is needed, because the managed node group creates one.
+- It takes one variable (name) and outputs both role ARNs.
+
+Things I learned
+- terraform validate only checks the folder it is run in. I ran it one folder too high and it passed on an empty configuration.
+- The region in provider.tf needs quotes.
+- cluster_name was an unused variable, so I deleted it.
+- Renaming a for_each row (like s1) makes Terraform destroy that subnet and create a new one, because it tracks resources by that name.
+- There are two different locks. .terraform.lock.hcl pins provider versions and gets committed. The state lock (use_lockfile) stops two runs at once and lives in S3.
