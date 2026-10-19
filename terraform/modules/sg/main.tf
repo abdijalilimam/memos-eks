@@ -9,7 +9,7 @@ resource "aws_security_group" "node_sg" {
   }
 }
 
-# What is allowed to come in to public subnet 1
+# Allow load balancer traffic from public subnet 1 to the nodes
 resource "aws_vpc_security_group_ingress_rule" "lb_s1" {
   description       = "The incoming traffic rule for public subnet 1"
   security_group_id = aws_security_group.node_sg.id
@@ -19,7 +19,7 @@ resource "aws_vpc_security_group_ingress_rule" "lb_s1" {
   to_port           = 32767
 }
 
-# What is allowed to come in to public subnet 2
+# Allow load balancer traffic from public subnet 2 to the nodes
 resource "aws_vpc_security_group_ingress_rule" "lb_s2" {
   description       = "The incoming traffic rule for public subnet 2"
   security_group_id = aws_security_group.node_sg.id
@@ -29,7 +29,7 @@ resource "aws_vpc_security_group_ingress_rule" "lb_s2" {
   to_port           = 32767
 }
 
-# What is allowed to come in to public subnet 3
+# Allow load balancer traffic from public subnet 3 to the nodes
 resource "aws_vpc_security_group_ingress_rule" "lb_s3" {
   description       = "The incoming traffic rule for public subnet 3"
   security_group_id = aws_security_group.node_sg.id
