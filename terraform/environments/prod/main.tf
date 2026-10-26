@@ -64,3 +64,12 @@ resource "helm_release" "argocd" {
 
   depends_on = [module.eks]
 }
+
+module "external_secrets" {
+  source = "../../modules/external-secrets"
+
+  name              = var.name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+  secret_prefix     = var.secret_prefix
+}

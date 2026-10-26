@@ -124,3 +124,8 @@ variable "max_size" {
   description = "The largest number of nodes"
   type        = number
 }
+
+variable "secret_prefix" {
+  description = "The start of the secret names the helper may read"
+  type        = string
+}
