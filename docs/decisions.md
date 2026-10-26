@@ -46,9 +46,9 @@ Worker nodes run in private subnets; the Traefik load balancer lands in public s
 
 The NAT gateway is a single regional NAT gateway, not a zonal one. One gateway covers all three availability zones, so losing one zone does not cut outbound internet for the private subnets.
 
-## Security groups scoped to minimum required access
+## Security groups: custom node SG on top of the EKS cluster SG
 
-Security group rules avoid `0.0.0.0/0` except where genuinely required for public load balancer traffic on ports 80/443. Node-to-node and control-plane-to-node rules are scoped narrowly.
+The EKS cluster security group handles control-plane-to-node and node-to-node traffic, so I leave it alone. I added one custom node security group that only allows load balancer traffic (TCP 30000-32767) from the three public subnet CIDRs. Both groups attach to the nodes through a launch template. I used CIDRs as the source because the load balancer is created later by Traefik's Service, so Terraform has no security group ID to reference. I avoided 0.0.0.0/0 on the nodes. The port range may need adjusting once Traefik is deployed.
 
 ## IAM: separate roles for the control plane and the worker nodes
 
@@ -74,3 +74,19 @@ The pipeline's last step updates the image tag inside `k8s/memos/deployment.yaml
 ## Monitoring: explicit dashboard coverage
 
 kube-prometheus-stack's default Grafana dashboards cover node and pod health, but not Ingress traffic. Adding a separate community Traefik dashboard to explicitly cover the four things that matter: CPU/memory usage, pod health, node statuses, and Ingress traffic — not just the three that come by default.
+
+## Root module: variables and tfvars, no defaults
+
+environments/prod holds main.tf (module calls only), variables.tf (every input with a description and type), terraform.tfvars (the values), and outputs.tf. Environment-specific values have no defaults, so a missing value fails the plan instead of silently using a default.
+
+## Cluster sizing and version
+
+Kubernetes 1.37, the newest version EKS offers, because AWS recommends new clusters use the latest version. Three t3.medium nodes (min 2, max 4), because ArgoCD, Traefik and kube-prometheus-stack all run on the same nodes as the app.
+
+## ArgoCD installed by Terraform
+
+ArgoCD is installed with a helm_release in the root module using the Terraform Helm provider, with the chart version pinned (10.10.5). Terraform stops there. Everything else is ArgoCD's job (app-of-apps).
+
+## First deploy done by hand, then destroyed
+
+I ran the first apply from my laptop to find problems before writing the pipeline, then destroyed everything to avoid cost. The pipeline will repeat the same init, plan and apply. The state bucket and ECR repo are outside this state and survive a destroy.

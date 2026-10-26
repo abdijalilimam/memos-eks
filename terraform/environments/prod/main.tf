@@ -53,3 +53,14 @@ module "eks" {
   min_size           = var.min_size
   max_size           = var.max_size
 }
+
+resource "helm_release" "argocd" {
+  name             = "argocd"
+  repository       = "https://argoproj.github.io/argo-helm"
+  chart            = "argo-cd"
+  namespace        = "argocd"
+  create_namespace = true
+  version          = "10.10.5"
+
+  depends_on = [module.eks]
+}

@@ -18,11 +18,12 @@
 
 ## Step 4 - Dockerfile
 - Moved the code up one folder (memos/web instead of memos/src/web) to keep the paths simple.
-- A Docker build starts empty and only has the files I COPY in. My first attempt failed at pnpm install. One cause: package.json points to a patch file in web/patches, and pnpm-workspace.yaml configures it. I hadn't copied either. I added them, but the build still failed and I never saw the real error message. The same install worked on my laptop. Status: unresolved. I added libc6-compat as a precaution (a common fix on Alpine), but I haven't confirmed it is the cause.
+- A Docker build starts empty and only has the files I COPY in. My first attempt failed at pnpm install. package.json points to a patch file in web/patches, and pnpm-workspace.yaml configures it. I hadn't copied either, so I added both before running pnpm install.
+- The build still failed on Alpine even though the same install worked on my laptop. Fix: install libc6-compat before installing pnpm. This is a common Alpine fix, since some pnpm dependencies expect glibc. With the patch files copied and libc6-compat installed, the install worked.
 - The frontend build writes its output to ../server/frontend/dist, so web/ and server/ have to sit side by side inside the container.
 - Simplified the Dockerfile to three stages: build the frontend (Node), build the backend (Go), run the app (Alpine).
 - Chose Alpine over scratch for the final image (see decisions.md).
-- Next: add a .dockerignore, run docker build, then docker run on port 8081.
+- Added a .dockerignore. The image builds (`docker build -t memos-custom:local .`) and runs on port 8081 (`docker run --rm -p 8081:8081 memos-custom:local`). Pushed to ECR in Step 5.
 
 ## Step 5 - Push image to ECR
 - Built with --platform linux/amd64 because my Mac is arm64 and the EKS nodes will be Intel. The Go build takes about 4 minutes under emulation.
@@ -60,3 +61,35 @@ Things I learned
 - cluster_name was an unused variable, so I deleted it.
 - Renaming a for_each row (like s1) makes Terraform destroy that subnet and create a new one, because it tracks resources by that name.
 - There are two different locks. .terraform.lock.hcl pins provider versions and gets committed. The state lock (use_lockfile) stops two runs at once and lives in S3.
+
+## Step 7 (continued) - sg, eks, root module
+
+sg module
+- Custom node security group on the worker nodes. One ingress rule per public subnet CIDR, TCP 30000-32767 (NodePort range) for load balancer traffic. The port range is a starting point to confirm when Traefik is deployed.
+- The EKS-created cluster security group already allows node-to-node and node-to-control-plane traffic. My node SG does not replace it.
+- A managed node group can only use a custom SG through a launch template, so the launch template attaches both: my node SG and the cluster SG (`vpc_config[0].cluster_security_group_id`).
+- A new security group has no outbound rule. The nodes get outbound from the cluster SG.
+
+eks module
+- Three pieces: cluster, launch template, node group. 11 variables. Three outputs: cluster_name, cluster_endpoint, cluster_certificate.
+- Cluster endpoint: public and private access both on. Public so my laptop and the pipeline can reach the API, private so nodes talk to it inside the VPC.
+- Instance type goes on the node group only. Putting it in the launch template as well causes a conflict.
+- Added depends_on on the iam outputs (role attachments) so the cluster and nodes wait for their policies. Added depends_on on the NAT gateway for the internet gateway.
+
+Root module (environments/prod)
+- main.tf calls the modules, variables.tf declares inputs, terraform.tfvars holds the values (no defaults), outputs.tf passes the eks outputs up.
+- Modules connect through outputs: module.vpc.vpc_id, module.iam.node_role_arn, module.sg.node_sg_id, and so on.
+- First manual apply: 30 resources, cluster took about 9 minutes. 3 nodes Ready on Kubernetes 1.37. Destroyed afterwards to save cost.
+
+Things I learned
+- Variables are inputs, outputs are return values, and the root module connects them. Resources inside the same module use type.label.attribute, not var.
+- Referencing aws_eks_cluster.main.name (not retyping the string) is what makes Terraform build the cluster before the node group.
+- validate does not read tfvars, so a wrong value only shows at plan.
+- "1.34" was a stale pick. Check the EKS version list first, and remember upstream Kubernetes versions arrive on EKS later.
+- Helm chart versions are plain strings. 10.10.05 failed at plan, 10.10.5 worked.
+
+## Step 8 - ArgoCD via Terraform
+- Added the hashicorp/helm provider (~> 3.0, installed 3.3.0). It connects with the cluster endpoint, the decoded certificate, and an aws eks get-token exec.
+- helm_release for argo-cd chart 10.10.5 in the argocd namespace, depends_on module.eks.
+- All 7 ArgoCD pods Running. Destroy removes ArgoCD too.
+- Next: bootstrap app-of-apps manifest, then Kubernetes manifests, Traefik, ExternalDNS, monitoring.
