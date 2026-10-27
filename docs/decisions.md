@@ -1,108 +1,80 @@
 ## App choice: memos + Postgres
-
-Chose memos (notes app) with a dedicated Postgres database, over memos+SQLite or a simpler static app (2048). SQLite would have meant a single service with no internal networking to design. Postgres as a second service forces a real internal-vs-external traffic boundary — Postgres runs as a ClusterIP service, never exposed via Ingress, only reachable from memos.
+memos with a dedicated Postgres database, instead of SQLite or a static app. A second service forces a real internal-vs-external traffic boundary: Postgres is a ClusterIP Service and is never exposed through the Ingress.
 
 ## Single environment for now
+One environment (prod) instead of dev/staging/prod. Multi-environment (for example staging auto-sync and prod manual sync) is deferred to keep the first full build achievable.
 
-Running one environment (prod) rather than dev/staging/prod in parallel. Multi-environment setup (e.g., staging auto-syncing via ArgoCD, prod requiring manual sync approval) is a valid future extension but was deliberately deferred to keep the first full build focused and achievable within the project timeline.
+## Domain: existing hosted zone, new subdomain
+Reused the Route 53 zone abdijalil.dev and add only eks.abdijalil.dev, which ExternalDNS manages. No new hosted zone is needed.
 
-## Domain: reused existing hosted zone, new subdomain only
+## Custom Docker image built from source
+Built memos from its source with my own Dockerfile instead of wrapping the upstream image. That gives the CI/CD pipeline a real build-and-scan step.
 
-`abdijalil.dev` is an existing Route 53 hosted zone (already used for a prior ECS project's `it-tools.abdijalil.dev`). Rather than creating a new hosted zone, this project adds a new record under the same zone: `eks.abdijalil.dev`, managed automatically by ExternalDNS.
-
-## Building a custom Docker image from source
-
-Chose to clone memos' actual source code and write a Dockerfile, rather than wrapping the pre-built upstream image. This gives the CI/CD pipeline a real build-and-scan step to perform, instead of reusing someone else's pre-built image.
-
-## Docker image: three stages, final image on Alpine (not scratch)
-
-The Dockerfile has three stages: build the frontend with Node, build the backend with Go, then copy only the finished program into a small final image. The final image is Alpine rather than scratch (an empty image with nothing in it). Scratch is smaller and gives security scanners almost nothing to flag, but it has no shell, so I can't open a terminal inside the container to debug it, and file permissions and missing certificates are harder to sort out. Alpine is a few MB bigger and has a shell, which will help while I'm getting things working on EKS. The app runs as a non-root user either way. I also kept the Dockerfile simple (no cache mounts, fewer COPY steps) so there are fewer places for it to break. Once the whole pipeline works, I may switch to scratch as a hardening step and compare the Trivy results.
+## Docker image: three stages, Alpine final image
+Stages are Node (frontend), Go (backend) and a runtime image with only the finished binary, running as non-root. Alpine over scratch because it has a shell for debugging on EKS; scratch is a possible later hardening step compared with Trivy results.
 
 ## Image tags: git commit hash, immutable in ECR
+Images are tagged with the short commit hash (for example cf084ac), never latest, and ECR tag immutability is on. Each tag maps to one build, so rollbacks are a tag change, and the pipeline's tag commit is what triggers the ArgoCD deploy. Built with --platform linux/amd64 because the laptop is arm64 and the nodes are Intel.
 
-Images are tagged with the short git commit hash (for example cf084ac), never latest, and the ECR repository has tag immutability turned on. Each tag points at exactly one build, so I can trace a running pod back to its code and roll back by changing the tag. It also makes GitOps work: the pipeline's tag change in Git is what makes ArgoCD deploy. I build with --platform linux/amd64 because my laptop is arm64 and the EKS nodes will be Intel.
+## Terraform state: S3 with native locking, created outside Terraform
+Versioned, encrypted S3 bucket with public access blocked, and locking via use_lockfile (Terraform 1.10+) instead of the deprecated DynamoDB locking. Created by hand because the backend must exist before Terraform runs, and kept out of teardown.
 
-## Terraform state: S3 bucket with built-in S3 locking, created outside Terraform
-
-State is stored in a versioned, encrypted S3 bucket with all public access blocked. Locking uses Terraform's native S3 lock file (use_lockfile) and not a DynamoDB table, because HashiCorp has deprecated DynamoDB locking and it's one less resource to run and secure. This needs Terraform 1.10 or newer. I created the bucket by hand since the state backend has to exist before Terraform can use it, and it is kept out of the project's teardown so destroying the project doesn't delete the state it depends on.
-
-## Terraform modules: custom modules instead of the community VPC module
-
-The infrastructure is split into separate modules: vpc, iam, sg and eks. For the VPC, the community terraform-aws-modules/vpc module was an option. I chose a custom module so every resource is visible in the repo, and I can explain and change each one.
-
-The VPC module takes the subnet values (CIDRs, zones, names) as variables. It groups them in a locals table and creates the subnets with for_each.
+## Custom Terraform modules instead of the community VPC module
+Modules are vpc, iam, sg, eks, external-secrets and external-dns. A custom VPC module keeps every resource visible in the repo, so I can explain and change each one. Subnet values come in as variables, are grouped in a locals map and created with for_each.
 
 ## Shared tags: default_tags in the provider
+Project and ManagedBy are set once in provider.tf. Each resource only sets its own Name tag, so there is no merge() on every resource.
 
-Common tags (Project, ManagedBy) are set once in provider.tf with default_tags. Each resource only sets its own Name tag, so there is no merge() in every resource.
+## Version pinning: Terraform 1.16.x, AWS ~> 6.24, Helm ~> 3.0
+required_version is ~> 1.16.4 and the pipeline must match. AWS provider ~> 6.24 because the regional NAT gateway needs 6.24+. The lock file is committed so the laptop and the pipeline install identical provider versions.
 
-## Version pinning: Terraform 1.16.x and AWS provider ~> 6.24
-
-required_version is ~> 1.16.4, which matches my laptop, and the pipeline must use the same version. The AWS provider is ~> 6.24 because the regional NAT gateway needs provider 6.24.0 or newer. The provider lock file (.terraform.lock.hcl) is committed so my laptop and the pipeline install the same provider version.
-
-## VPC: explicit private/public subnet split
-
-Worker nodes run in private subnets; the Traefik load balancer lands in public subnets. A deliberate two-tier split with a NAT Gateway so private subnets retain outbound internet access.
-
-The NAT gateway is a single regional NAT gateway, not a zonal one. One gateway covers all three availability zones, so losing one zone does not cut outbound internet for the private subnets.
+## VPC: public/private split with one regional NAT gateway
+Worker nodes run in private subnets and the Traefik load balancer lands in public subnets. A single regional NAT gateway covers all three AZs, so losing one zone doesn't cut outbound internet for the private subnets.
 
 ## Security groups: custom node SG on top of the EKS cluster SG
+The EKS cluster SG already handles control-plane-to-node and node-to-node traffic, so I leave it alone. The custom node SG only allows TCP 30000-32767 from the three public subnet CIDRs (CIDRs because the load balancer is created later by Traefik, so there is no SG ID to reference), and no 0.0.0.0/0 on the nodes. Both SGs attach through a launch template, and the port range may need adjusting once Traefik is deployed.
 
-The EKS cluster security group handles control-plane-to-node and node-to-node traffic, so I leave it alone. I added one custom node security group that only allows load balancer traffic (TCP 30000-32767) from the three public subnet CIDRs. Both groups attach to the nodes through a launch template. I used CIDRs as the source because the load balancer is created later by Traefik's Service, so Terraform has no security group ID to reference. I avoided 0.0.0.0/0 on the nodes. The port range may need adjusting once Traefik is deployed.
-
-## IAM: separate roles for the control plane and the worker nodes
-
-There are two roles.
-
-- Control plane role: trusts the EKS service and has one policy, AmazonEKSClusterPolicy.
-- Worker node role: trusts EC2 and has only the policies the nodes need (AmazonEKSWorkerNodePolicy, AmazonEKS_CNI_Policy, AmazonEC2ContainerRegistryReadOnly).
-
-There is no instance profile in the code. The managed node group creates one from the node role automatically.
-
-## GitOps pattern: app-of-apps
-
-Terraform's scope is deliberately minimal: create the VPC, IAM roles, EKS cluster, install ArgoCD, and apply one bootstrap manifest (`argocd/bootstrap/app-of-apps.yaml`). Every other tool — Traefik, ExternalDNS, kube-prometheus-stack, and the memos/Postgres app itself — is installed and managed exclusively through ArgoCD, watching `argocd/infra/` and `argocd/apps/`. Chose this over having Terraform install those tools directly via `helm_release`, because splitting "some things Terraform manages, some things ArgoCD manages" means two sources of truth instead of one.
-
-## Ingress + TLS: Traefik with built-in Let's Encrypt, no cert-manager
-
-Chose Traefik over NGINX Ingress Controller, and decided to use Traefik's built-in ACME/Let's Encrypt integration rather than installing cert-manager separately, since Traefik already includes this capability out of the box. Confirmed this with the course instructor/mentor before proceeding. This simplifies the stack by one moving piece — no separate cert-manager installation or ClusterIssuer needed.
-
-## CI/CD deploys via Git commit, not direct kubectl/helm
-
-The pipeline's last step updates the image tag inside `k8s/memos/deployment.yaml` and commits that change to Git, rather than running `kubectl apply` or `helm upgrade` directly. ArgoCD detects the change and performs the actual deploy. This keeps the pipeline responsible for triggering a deployment while ArgoCD/Git remains the sole mechanism that actually touches the cluster.
-
-## Monitoring: explicit dashboard coverage
-
-kube-prometheus-stack's default Grafana dashboards cover node and pod health, but not Ingress traffic. Adding a separate community Traefik dashboard to explicitly cover the four things that matter: CPU/memory usage, pod health, node statuses, and Ingress traffic — not just the three that come by default.
+## IAM: separate roles for the control plane and the nodes
+The cluster role trusts eks.amazonaws.com with AmazonEKSClusterPolicy. The node role trusts ec2.amazonaws.com with AmazonEKSWorkerNodePolicy, AmazonEKS_CNI_Policy and AmazonEC2ContainerRegistryReadOnly. No instance profile in code, because the managed node group creates it. The role ARN outputs depend_on the policy attachments, so nothing uses a role before its policies exist.
 
 ## Root module: variables and tfvars, no defaults
-
-environments/prod holds main.tf (module calls only), variables.tf (every input with a description and type), terraform.tfvars (the values), and outputs.tf. Environment-specific values have no defaults, so a missing value fails the plan instead of silently using a default.
+environments/prod holds main.tf (module calls only), variables.tf (typed and described inputs), terraform.tfvars (values) and outputs.tf. Environment-specific values have no defaults, so a missing value fails the plan instead of silently using a default.
 
 ## Cluster sizing and version
-
-Kubernetes 1.37, the newest version EKS offers, because AWS recommends new clusters use the latest version. Three t3.medium nodes (min 2, max 4), because ArgoCD, Traefik and kube-prometheus-stack all run on the same nodes as the app.
+Kubernetes 1.37, the newest version on EKS, because AWS recommends the latest for new clusters. Three t3.medium nodes (min 2, max 4), since ArgoCD, Traefik and kube-prometheus-stack share the nodes with the app.
 
 ## ArgoCD installed by Terraform
+A helm_release in the root module with the chart version pinned (10.10.5), authenticated with the cluster endpoint, the decoded CA and an aws eks get-token exec. Terraform stops there, and everything else is ArgoCD's job.
 
-ArgoCD is installed with a helm_release in the root module using the Terraform Helm provider, with the chart version pinned (10.10.5). Terraform stops there. Everything else is ArgoCD's job (app-of-apps).
+## GitOps pattern: app-of-apps
+Terraform creates the VPC, IAM, cluster and ArgoCD, then applies one bootstrap manifest (argocd/bootstrap/app-of-apps.yaml). Traefik, ExternalDNS, kube-prometheus-stack, ESO and the memos/Postgres app are managed only through ArgoCD, so there is one source of truth instead of two.
 
-## First deploy done by hand, then destroyed
+## Ingress and TLS: Traefik with built-in Let's Encrypt, no cert-manager
+Traefik over NGINX Ingress, using its built-in ACME integration instead of cert-manager. Approved by the mentor, and it removes one moving part (no ClusterIssuer).
 
+## CI/CD deploys via a Git commit, not kubectl or helm
+The pipeline's last step updates the image tag in k8s/memos/deployment.yaml and commits it. ArgoCD detects the change and deploys, so Git and ArgoCD are the only things that touch the cluster.
+
+## Monitoring: explicit dashboard coverage
+The default kube-prometheus-stack dashboards cover node and pod health but not Ingress traffic. A community Traefik dashboard is added to cover all four required areas: CPU/memory, pod health, node status and Ingress traffic.
+
+## First deploy by hand, then destroyed
 I ran the first apply from my laptop to find problems before writing the pipeline, then destroyed everything to avoid cost. The pipeline will repeat the same init, plan and apply. The state bucket and ECR repo are outside this state and survive a destroy.
 
 ## One namespace for the app
-
-memos and Postgres share one namespace (memos). Secrets can only be read inside their own namespace, so one namespace means one copy of the password, and memos reaches Postgres at the short address postgres. Infrastructure tools (Traefik, monitoring, ArgoCD) get their own namespaces.
+memos and Postgres share the memos namespace. Secrets are namespace-scoped, so this means one copy of the password and the short address postgres for the connection. Infrastructure tools (Traefik, monitoring, ArgoCD) get their own namespaces.
 
 ## Secrets: AWS Secrets Manager with the External Secrets Operator
-
-No password is committed to git. The real Postgres password lives in AWS Secrets Manager. The External Secrets Operator reads it and builds the normal Kubernetes Secret, so the StatefulSet does not change. The repo only holds a SecretStore and an ExternalSecret, neither of which contains a password. I chose this over Sealed Secrets and a plain Secret file because Kubernetes Secrets are only base64 encoded, and git keeps old versions forever. The secret is created once by hand with the AWS CLI, not in Terraform, so it never ends up in state.
+No password is committed to git. ESO reads the secret from Secrets Manager and builds the normal Kubernetes Secret, so the StatefulSet doesn't change, and the repo holds only a SecretStore and an ExternalSecret. Chosen over Sealed Secrets and plain Secret files because Kubernetes Secrets are only base64 and git keeps history. The secret is created once with the AWS CLI so it never enters Terraform state.
 
 ## One cluster OIDC provider, a separate IAM role per helper
+The eks module creates the OIDC provider once. ESO, ExternalDNS and the EBS CSI driver each get their own IRSA role that trusts one specific service account and has only the permissions it needs, so no access keys exist in the cluster.
 
-The eks module creates the cluster's OIDC provider once. Each helper (ESO, ExternalDNS, EBS CSI driver) gets its own IAM role that trusts one specific service account and has only the permissions it needs. No access keys exist anywhere in the cluster.
+## Persistent storage: EBS CSI driver as an EKS add-on
+EKS can't create AWS disks by default, so Postgres needs the EBS CSI driver. Installed as an EKS add-on (AWS manages updates) with AWS's managed AmazonEBSCSIDriverPolicy, and its role lives in the eks module because it only needs the cluster and the OIDC provider. EBS disks are single-AZ, so Postgres can only run in its disk's zone, which is fine with nodes in all three.
 
-## Bootstrap folder: small, built when the pipeline is built
+## ExternalDNS: own module, scoped to one zone
+The role can edit records only in the abdijalil.dev zone, found with a data lookup instead of a hardcoded zone ID. Because that zone also holds the earlier project's records, ExternalDNS will be configured to manage only eks.abdijalil.dev.
 
-The pipeline needs a role in AWS before it can run Terraform, so that role cannot be created by the pipeline. A small separate Terraform folder with its own state will hold only the GitHub OIDC provider and the role, applied by hand once. The state bucket and ECR repo stay manual.
+## CI/CD bootstrap folder: small, built with the pipeline
+The pipeline needs an AWS role before it can run Terraform, so the pipeline can't create it. A small separate Terraform folder with its own state will hold only the GitHub OIDC provider and role, applied by hand once. The state bucket and ECR repo stay manual.
