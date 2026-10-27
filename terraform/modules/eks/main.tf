@@ -46,3 +46,54 @@ resource "aws_iam_openid_connect_provider" "cluster" {
   url            = aws_eks_cluster.main.identity[0].oidc[0].issuer
   client_id_list = ["sts.amazonaws.com"]
 }
+
+#EBS CSI driver (lets pods get AWS disks)
+locals {
+  oidc_host = replace(aws_iam_openid_connect_provider.cluster.url, "https://", "")
+}
+
+# The badge: only the disk driver's service account in this cluster can wear it
+resource "aws_iam_role" "ebs_csi" {
+  name = "${var.name}-ebs-csi"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "sts:AssumeRoleWithWebIdentity"
+        Principal = {
+          Federated = aws_iam_openid_connect_provider.cluster.arn
+        }
+        Condition = {
+          StringEquals = {
+            "${local.oidc_host}:sub" = "system:serviceaccount:kube-system:ebs-csi-controller-sa"
+            "${local.oidc_host}:aud" = "sts.amazonaws.com"
+          }
+        }
+      },
+    ]
+  })
+
+  tags = {
+    Name = "${var.name}-ebs-csi"
+  }
+}
+
+# What the badge allows: AWS's ready-made list of disk permissions
+resource "aws_iam_role_policy_attachment" "ebs_csi" {
+  role       = aws_iam_role.ebs_csi.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+}
+
+# AWS installs the driver for you and hands it the badge
+resource "aws_eks_addon" "ebs_csi" {
+  cluster_name             = aws_eks_cluster.main.name
+  addon_name               = "aws-ebs-csi-driver"
+  service_account_role_arn = aws_iam_role.ebs_csi.arn
+
+  depends_on = [
+    aws_eks_node_group.main,
+    aws_iam_role_policy_attachment.ebs_csi,
+  ]
+}

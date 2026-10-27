@@ -30,3 +30,5 @@ min_size           = 2
 max_size           = 4
 
 secret_prefix = "memos-eks/prod/"
+
+domain_name = "abdijalil.dev"

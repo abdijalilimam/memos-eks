@@ -90,3 +90,19 @@ ArgoCD is installed with a helm_release in the root module using the Terraform H
 ## First deploy done by hand, then destroyed
 
 I ran the first apply from my laptop to find problems before writing the pipeline, then destroyed everything to avoid cost. The pipeline will repeat the same init, plan and apply. The state bucket and ECR repo are outside this state and survive a destroy.
+
+## One namespace for the app
+
+memos and Postgres share one namespace (memos). Secrets can only be read inside their own namespace, so one namespace means one copy of the password, and memos reaches Postgres at the short address postgres. Infrastructure tools (Traefik, monitoring, ArgoCD) get their own namespaces.
+
+## Secrets: AWS Secrets Manager with the External Secrets Operator
+
+No password is committed to git. The real Postgres password lives in AWS Secrets Manager. The External Secrets Operator reads it and builds the normal Kubernetes Secret, so the StatefulSet does not change. The repo only holds a SecretStore and an ExternalSecret, neither of which contains a password. I chose this over Sealed Secrets and a plain Secret file because Kubernetes Secrets are only base64 encoded, and git keeps old versions forever. The secret is created once by hand with the AWS CLI, not in Terraform, so it never ends up in state.
+
+## One cluster OIDC provider, a separate IAM role per helper
+
+The eks module creates the cluster's OIDC provider once. Each helper (ESO, ExternalDNS, EBS CSI driver) gets its own IAM role that trusts one specific service account and has only the permissions it needs. No access keys exist anywhere in the cluster.
+
+## Bootstrap folder: small, built when the pipeline is built
+
+The pipeline needs a role in AWS before it can run Terraform, so that role cannot be created by the pipeline. A small separate Terraform folder with its own state will hold only the GitHub OIDC provider and the role, applied by hand once. The state bucket and ECR repo stay manual.

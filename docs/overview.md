@@ -52,7 +52,16 @@ online, then I deleted everything to avoid paying for it while I wasn't using it
 ArgoCD is a robot that watches my project folder and makes the cluster match whatever
 is written there. Terraform installs it, and from then on ArgoCD takes over.
 
-## What's next
-Tell ArgoCD what to run (the app, its database, the web address and its security
-certificate, and monitoring), then automate it so that saving a change in GitHub
-updates the live site by itself.
+## Step 9 - Getting the passwords ready
+The app's database needs a password, and a password must never be saved in the project
+folder, because the folder keeps every old version forever. So the password will live in
+a locked AWS safe, and a helper inside the cluster will fetch it and hand it to the
+database.
+
+For AWS to let the helper into the safe, the cluster has to be registered as a place AWS
+trusts to hand out ID badges. I set that up, and built a badge for the helper that only
+lets it read the one password and nothing else.
+
+I also created the app's own section of the cluster (a namespace), where the app and its
+database will live together.
+

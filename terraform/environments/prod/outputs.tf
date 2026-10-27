@@ -17,3 +17,8 @@ output "external_secrets_role_arn" {
   description = "The badge the password helper wears"
   value       = module.external_secrets.role_arn
 }
+
+output "external_dns_role_arn" {
+  description = "The badge the DNS helper wears"
+  value       = module.external_dns.role_arn
+}

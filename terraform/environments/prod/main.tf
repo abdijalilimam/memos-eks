@@ -73,3 +73,12 @@ module "external_secrets" {
   oidc_provider_url = module.eks.oidc_provider_url
   secret_prefix     = var.secret_prefix
 }
+
+module "external_dns" {
+  source = "../../modules/external-dns"
+
+  name              = var.name
+  oidc_provider_arn = module.eks.oidc_provider_arn
+  oidc_provider_url = module.eks.oidc_provider_url
+  domain_name       = var.domain_name
+}

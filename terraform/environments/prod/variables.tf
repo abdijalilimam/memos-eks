@@ -129,3 +129,8 @@ variable "secret_prefix" {
   description = "The start of the secret names the helper may read"
   type        = string
 }
+
+variable "domain_name" {
+  description = "The domain whose DNS records the helper may edit"
+  type        = string
+}

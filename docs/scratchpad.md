@@ -93,3 +93,28 @@ Things I learned
 - helm_release for argo-cd chart 10.10.5 in the argocd namespace, depends_on module.eks.
 - All 7 ArgoCD pods Running. Destroy removes ArgoCD too.
 - Next: bootstrap app-of-apps manifest, then Kubernetes manifests, Traefik, ExternalDNS, monitoring.
+
+## Step 9 - Secrets groundwork (nothing applied yet)
+
+Namespace
+- Wrote k8s/namespaces/memos.yaml. One namespace for the whole app (memos + Postgres). Infrastructure tools get their own later.
+- The file only creates the empty section. Every other file says `namespace: memos` to put its objects in it.
+
+OIDC provider (eks module)
+- Added aws_iam_openid_connect_provider to the eks module, plus two outputs: oidc_provider_arn and oidc_provider_url.
+- It registers the cluster with AWS as a trusted badge issuer, so programs inside the cluster can be given IAM roles (IRSA) with no stored keys. ESO, ExternalDNS and the EBS CSI driver will all use it.
+- client_id_list is a list, so it needs [ ] even with one item. url is a single value, so no brackets.
+
+external-secrets module
+- New module: an IAM role only the ESO service account can use (namespace external-secrets, account external-secrets), allowed to do only GetSecretValue and DescribeSecret on secrets starting with memos-eks/prod/.
+- The names in the trust rule must match what ESO is installed as later, or AWS refuses the badge.
+- data blocks look things up (region, account number). Resource blocks build things. locals are named values inside a module.
+- Root module got a module block, a secret_prefix variable, a tfvars line and an output.
+- The secret itself is not created yet. It will be made once by hand with the AWS CLI, so the password never lands in Terraform state.
+
+Things I learned
+- A typo in a folder name (external-secrects) gives "Unreadable module directory" and an empty source in the error. Check with ls.
+- Outputs have no type line. Variables do.
+- Lists take [ ]. If a name ends in _list or _ids, it takes a list.
+- Base64 is not encryption. A Secret in git is a password in git.
+
