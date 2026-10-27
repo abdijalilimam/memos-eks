@@ -1,4 +1,4 @@
-# Project overview, in plain English
+# Project overview
 
 I'm putting a notes app (memos) on the internet at eks.abdijalil.dev, using the same
 tools a real company would. Everything is built from written instructions instead of
