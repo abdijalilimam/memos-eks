@@ -1,0 +1,39 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://kubernetes-sigs.github.io/external-dns/
+    chart: external-dns
+    targetRevision: "REPLACE_WITH_CHART_VERSION"
+    helm:
+      valuesObject:
+        provider:
+          name: aws
+        sources:
+          - ingress
+        domainFilters:
+          - eks.abdijalil.dev
+        policy: sync
+        registry: txt
+        txtOwnerId: memos-eks
+        env:
+          - name: AWS_DEFAULT_REGION
+            value: us-east-2
+        serviceAccount:
+          create: true
+          name: external-dns
+          annotations:
+            eks.amazonaws.com/role-arn: arn:aws:iam::305476115260:role/memos-eks-external-dns
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
