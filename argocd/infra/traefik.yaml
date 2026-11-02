@@ -1,0 +1,61 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: traefik
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://traefik.github.io/charts
+    chart: traefik
+    targetRevision: "42.2.0"
+    helm:
+      valuesObject:
+        ingressClass:
+          enabled: true
+          isDefaultClass: true
+        providers:
+          kubernetesIngress:
+            enabled: true
+            publishedService:
+              enabled: true
+        service:
+          type: LoadBalancer
+          annotations:
+            service.beta.kubernetes.io/aws-load-balancer-type: nlb
+        certificatesResolvers:
+          letsencrypt:
+            acme:
+              email: abdijalilimam@gmail.com
+              storage: /data/acme.json
+              tlsChallenge: true
+              # While testing, uncomment the next line to avoid Let's Encrypt's weekly limit.
+              # Remove it for the final run, or browsers will show a certificate warning.
+              # caServer: https://acme-staging-v02.api.letsencrypt.org/directory
+        persistence:
+          enabled: true
+          name: data
+          path: /data
+          size: 128Mi
+          storageClass: gp3
+        deployment:
+          initContainers:
+            - name: volume-permissions
+              image: busybox:1.37
+              command: ["sh", "-c", "touch /data/acme.json && chmod -v 600 /data/acme.json"]
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+        podSecurityContext:
+          fsGroup: 65532
+          fsGroupChangePolicy: OnRootMismatch
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: traefik
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
