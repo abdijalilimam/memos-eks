@@ -13,6 +13,7 @@ spec:
       labels:
         app: memos
     spec:
+      enableServiceLinks: false
       containers:
         - name: memos
           image: 305476115260.dkr.ecr.us-east-2.amazonaws.com/memos:cf084ac
