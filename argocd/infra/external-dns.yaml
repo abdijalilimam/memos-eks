@@ -16,7 +16,7 @@ spec:
         sources:
           - ingress
         domainFilters:
-          - eks.abdijalil.dev
+          - abdijalil.dev
         policy: sync
         registry: txt
         txtOwnerId: memos-eks
