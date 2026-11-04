@@ -30,3 +30,15 @@ Wrote k8s/namespaces/memos.yaml, one namespace for memos and Postgres, and added
 
 ## Step 10 - Disk driver and DNS role (not applied yet)
 The eks module now installs the EBS CSI driver as an EKS add-on with an IRSA role (AmazonEBSCSIDriverPolicy, trusting ebs-csi-controller-sa in kube-system) and depends_on the node group; EBS volumes are single-AZ, and a StorageClass is still needed in the Postgres manifests. The external-dns module creates an IRSA role for the service account external-dns/external-dns with ChangeResourceRecordSets scoped to the abdijalil.dev zone (found with a data lookup). ExternalDNS must be restricted to eks.abdijalil.dev at install time, since that zone also holds the earlier project's records.
+
+## Step 11 - First full run
+Created the Postgres password once in AWS Secrets Manager (memos-eks/prod/postgres, JSON key `password`, random hex from openssl), so it never touches git or Terraform state. `terraform apply` built 39 resources, the two role ARN outputs matched the ArgoCD files, and applying `app-of-apps.yaml` made ArgoCD create all five Applications.
+
+## Step 12 - Fixes during the first sync
+Two Applications showed Unknown because `targetRevision` was still a placeholder, so I pinned real chart versions (external-dns 1.23.0, kube-prometheus-stack 92.17.1; external-secrets 2.14.0, traefik 42.2.0). memos stayed 0/1 Ready because Kubernetes injects a MEMOS_PORT variable from the memos Service, so memos read port 0; `enableServiceLinks: false` fixed it. ExternalDNS created nothing until domainFilters matched the zone name (abdijalil.dev, not eks.abdijalil.dev), then it created the A, AAAA and two TXT ownership records.
+
+## Step 13 - HTTPS certificate (open)
+Traefik requested the Let's Encrypt certificate before DNS existed (NXDOMAIN), then again seconds after a restart, before the pod was routable (connection refused), and it does not retry on its own. curl later completed a TLS handshake on 443, so the network path and security group are fine; the next attempt should be triggered while Traefik is already running, not by restarting it.
+
+## Step 14 - Teardown order
+Scale the ArgoCD controller to 0, delete the Ingress (ExternalDNS removes the records), delete the Traefik Service (removes the load balancer), delete the apps and their PVCs, check `kubectl get pv` is empty, then `terraform destroy` (39 destroyed). The PVCs must go first, or the EBS disks stay in the account and keep billing.

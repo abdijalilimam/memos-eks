@@ -73,8 +73,17 @@ The eks module creates the OIDC provider once. ESO, ExternalDNS and the EBS CSI 
 ## Persistent storage: EBS CSI driver as an EKS add-on
 EKS can't create AWS disks by default, so Postgres needs the EBS CSI driver. Installed as an EKS add-on (AWS manages updates) with AWS's managed AmazonEBSCSIDriverPolicy, and its role lives in the eks module because it only needs the cluster and the OIDC provider. EBS disks are single-AZ, so Postgres can only run in its disk's zone, which is fine with nodes in all three.
 
-## ExternalDNS: own module, scoped to one zone
-The role can edit records only in the abdijalil.dev zone, found with a data lookup instead of a hardcoded zone ID. Because that zone also holds the earlier project's records, ExternalDNS will be configured to manage only eks.abdijalil.dev.
-
 ## CI/CD bootstrap folder: small, built with the pipeline
 The pipeline needs an AWS role before it can run Terraform, so the pipeline can't create it. A small separate Terraform folder with its own state will hold only the GitHub OIDC provider and role, applied by hand once. The state bucket and ECR repo stay manual.
+
+## ExternalDNS: own module, scoped by ownership records
+The role can edit records only in the abdijalil.dev zone, found with a data lookup. The domain filter is the zone name (abdijalil.dev), because a filter on eks.abdijalil.dev matches no zone. The old project's records stay safe because ExternalDNS only changes records carrying its TXT ownership note (txtOwnerId memos-eks).
+
+## Chart versions pinned
+Every helper chart has a real pinned version (external-secrets 2.14.0, external-dns 1.23.0, traefik 42.2.0, kube-prometheus-stack 92.17.1, argo-cd 10.10.5). A placeholder or floating version makes ArgoCD fail, and a pinned one gives the same install every time.
+
+## memos pod: service links off
+The memos pod sets enableServiceLinks: false. Kubernetes otherwise injects MEMOS_PORT from the memos Service, and memos reads that variable as its own port setting, which breaks it.
+
+## Teardown order is part of the design
+The Ingress, the Traefik Service and all PVCs are deleted before terraform destroy. They create AWS resources (DNS records, a load balancer, EBS disks) that Terraform doesn't own, and they either bill or block the VPC delete if left behind.

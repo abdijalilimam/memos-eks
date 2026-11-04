@@ -10,3 +10,7 @@
 | 7 | Terraform | "Missing required provider" on `validate` | Deleted `.terraform` before running `validate`, and `init` downloads the provider into it | Run `init`, then `validate`, then clean up |
 | 8 | Helm | "Planned version is different from configured version" | Chart version written as `10.10.05` | Use `10.10.5` |
 | 9 | Terraform | "Unreadable module directory" | Typo in the module folder name (`external-secrects`) | Rename the folder to match the `source` path, and check with `ls` |
+| 11 | ArgoCD | Application shows `Unknown`, "improper constraint: REPLACE_WITH_CHART_VERSION" | `targetRevision` still held the placeholder | Pin a real chart version, push, then refresh the Application |
+| 11 | memos | Pod `0/1 Running`, log says "Server running on port 0" | Kubernetes service links set MEMOS_PORT to a `tcp://...` value, which memos can't parse | `enableServiceLinks: false` in the pod spec |
+| 11 | ExternalDNS | "no changes for the matching hosted zones", site gives NXDOMAIN | domainFilters was `eks.abdijalil.dev`, but the zone is `abdijalil.dev` | Set the filter to the zone name |
+| 11 | Traefik | Let's Encrypt fails with NXDOMAIN, then "Connection refused" | The certificate was requested before DNS existed, then seconds after startup before the pod was routable. Traefik does not retry by itself | Request while Traefik is already running (open) |

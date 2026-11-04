@@ -53,3 +53,12 @@ a separate, permanent disk from AWS. I added the small program that orders those
 and a badge for the helper that creates the website address, allowed to edit my domain's
 records and nothing else. None of this is built in AWS yet. It gets created the next time I
 turn the cluster on.
+
+## Step 11 - Turning it all on
+I stored the database password in the AWS safe, built everything with Terraform, and gave ArgoCD its one starting instruction. ArgoCD then installed the helpers and the app on its own.
+
+## Step 12 - Fixing what broke
+A few things didn't work the first time: two installs had version numbers left blank, the app was reading the wrong port, and the address helper was looking in the wrong place. Each was a one-line fix. The website address now exists, and the only piece left is the secure padlock.
+
+## Step 13 - Cleaning up
+When I finished for the day, I removed the pieces AWS charges for in a specific order (address, front door, disks) and then destroyed the cluster, so nothing keeps billing.
